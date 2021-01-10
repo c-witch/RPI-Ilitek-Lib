@@ -1,0 +1,327 @@
+					SPI_Ilitek 9xxx series spi tft lcd displays
+
+	This is a library for Raspberry Pi's running Linux to utilize those neat little tftlcd
+spi driven displays. It requires both Spidev and Gpio to be installed on the target machine.
+The init files are for the Ilitek 9340,9341, 9486 and 9488 chips. All displays are in 18 bit per
+pixel mode. The default layout is landscape mode.  You may use either Spi0.x or Spi1.x
+as your spi communications from host to display. Using linux frame buffer eliminates
+Spi0.x.  The 4 Ilitek chips above have been tested with this code and work, with the
+exception of the 9340 I don't have one of those.
+
+	There is a second program that will write the .init files for other chip that can be
+found in the /usr/src/Source/linux-4.9-source-4.9/drivers/staging/fbtft. Note this may
+not be exactly as on your system but it should help guide you to find it. For now it's
+somewhat of a quick and dirty little program to generate the init file but does require
+manual input for each file. An example is as below:
+
+/*****                    code from the fb_ili9486.c file                        ******/
+static int default_init_sequence[] = {
+	/* Interface Mode Control */
+	-1, 0xb0, 0x0,
+	-1, MIPI_DCS_EXIT_SLEEP_MODE,
+	-2, 250,
+	/* Interface Pixel Format */
+	-1, MIPI_DCS_SET_PIXEL_FORMAT, 0x55,
+	/* Power Control 3 */
+	-1, 0xC2, 0x44,
+	/* VCOM Control 1 */
+	-1, 0xC5, 0x00, 0x00, 0x00, 0x00,
+	/* PGAMCTRL(Positive Gamma Control) */
+	-1, 0xE0, 0x0F, 0x1F, 0x1C, 0x0C, 0x0F, 0x08, 0x48, 0x98,
+		  0x37, 0x0A, 0x13, 0x04, 0x11, 0x0D, 0x00,
+	/* NGAMCTRL(Negative Gamma Control) */
+	-1, 0xE1, 0x0F, 0x32, 0x2E, 0x0B, 0x0D, 0x05, 0x47, 0x75,
+		  0x37, 0x06, 0x10, 0x03, 0x24, 0x20, 0x00,
+	/* Digital Gamma Control 1 */
+	-1, 0xE2, 0x0F, 0x32, 0x2E, 0x0B, 0x0D, 0x05, 0x47, 0x75,
+		  0x37, 0x06, 0x10, 0x03, 0x24, 0x20, 0x00,
+	-1, MIPI_DCS_EXIT_SLEEP_MODE,
+	-1, MIPI_DCS_SET_DISPLAY_ON,
+	/* end marker */
+	-3
+};
+
+The -1's are replaced with 0xff
+The -2's are replaced with 0xfe
+The -3 is replaced with 0xfd
+The 0xff indicates to my program that the next byte is a command. The 0xfe indicates
+that the next byte is a time delay value in msecs. The 0xfd is important as it marks the
+end of initialization code. Don't Forget to Put it as the LAST BYTE!  NOTE: distinguish
+between numeral '0' and capital 'O'! Further notes:
+
+	MIPI_DCS_EXIT_SLEEP_MODE,  is code 0x11
+	MIPI_DCS_SET_PIXEL_FORMAT is code 0x3a
+	MIPI_DCS_SET_DISPLAY_ON       is code 0x29
+You may come across other MIPI code, I will leave it up to you to search the net
+to find out what the Hexadecimal value is for it.
+
+This init code is the same init code that the linux fbtft frame buffer driver uses so its pretty much
+guarantee'd to work. In time I may add the other drivers but feel free to add them to
+the base yourself and make the required changes to the source code to accomodate them.
+
+One important thing to remember: my library ONLY works in 18 bit color mode so
+make sure to set pixel format to 0x66 and NOT 0x55.
+
+I've allowed for up to 10 <Name><Value> pairs on the command line when running my program;
+example commandline with NAME/VALUE pair (NAME = rotate, VALUE = 90) would be like:
+
+bash$: ./this-program rotate 90
+
+When you extract the archive containing my code to your /home/pi/...
+directory, you should end up with a directory called IliTek_Displays, and various
+sub folders. This is a work in progress and I'm not a professional programmer,
+but I have been dabbling in 'C' for several decades now. Go Geany Go :-).
+
+
+	Library functions, their parameters, and what they do!
+
+void lcdOpenDisplay(byte fontdex)
+	first function to call after command line paring is done ie in your code
+	goes here.
+	takes fontdex ie an index into which font file to use.  For now the only
+	available fonts to use are in the Font folder. Check lcdError on return to
+	make sure your selected font was loaded.
+
+void lcdCloseDisplay(void)
+	call this at the end of your program to ensure resources allocated are
+	returned to the system pool.
+
+byte lcdOpenFont(byte index)
+	opens a selected font file and loads it to memory. Acceptable indices are:
+	f09x16
+	f12x16
+	f10x20
+	f12x23
+	f12x24
+	f12x27
+	f14x30
+	f16x32
+	returns a 1 if the selected index is out of range and sets lcdError.
+
+int writeData (byte *txptr, word count)
+	returns 0; takes a pointer (txptr) to a buffer, and number of bytes to send out the SPI.
+	Maximum count bytes 4096 per write.
+	On error writing will display a message and calls EXIT to abort the program.
+
+int writeCommand (byte Command)
+	returns 0; takes and unsigned char (byte) and writes it to the SPI.
+	On error writing, displays a message and then calls EXIT to abort.
+
+void EXIT (byte ERR)
+	Called whenever a fatal error has occured. Releases allocated memory, closes
+	files etc, before exiting the program.
+
+void hardReset (void)
+	Shouldn't really be called or used. Used at the lib start up to reset the display
+	into known conditions before initialization and again during EXIT.
+
+void bitprint (word int, word size)  int is the number and size indicates the number 
+	of bits to work on ie either 8 or 16.
+	Takes a short unsigned int and prints 1 and 0 corresponding to which bits are on
+	or off in the int passed to it. ie 0xff prints 11111111 all bits ON
+
+word lcdChk_Key(void)
+	checks the keyboard for a key press.If there is one checks to see if it is one of the
+	following. "q" calls EXIT and terminates the program. "b" toggles the backlight on or off.
+	in all cases except "q" the key code is returned. Returns 0 if no key has been pressed or
+	the backlight has been toggled.
+
+byte lcdErrorMesg ( byte index ) <-- ie. lcdError. This will print an error message
+	to stdout.
+
+word lcdOrientation (word Rotation);
+	Takes a value of 0, 90, 180 or 270 for screen rotation and sets the display into a
+	new mode as well as changing various program variables for the new mode. This
+	is also used to switch RGB.
+
+word stringPixels (char *str)
+	Takes a char pointer to a string, and returns the length in pixels either horizontally or
+	vertically using the current font.
+
+void lcdon (void)
+	Will turn on the display backlight if available
+
+void lcdoff (void)
+	Opposite of the above lol
+
+void lcdInvert (word)
+	Send command to the display to invert the display colours.
+
+Note: all pixel data is stored in host memory as well as in the display's memory!
+
+unsigned int lcdOffset (word X, word Y)
+	Takes an X/Y pixel coordinate position and returns an unsigned int offset, from
+	beginning of host display memory, to the pixel.
+
+int bitBlt (word X1, word Y1, word X2, word Y2)
+	The donkey motor for everything. Takes a rectangular region X1, Y1, X2, Y2 of host
+	memory and sets up a seqencial buffer of 3 color-bytes bytes per pixel, then
+	blasts it out 4096 bytes at a time or portion there of.
+
+int lcdRefresh (void)
+	Refreshes (updates) the display from host memory; similar to bitBlt
+	except the area refreshed is the entire display.
+
+unsigned int lcdClear (void)
+	Clears the entire display and host memory, by filling every pixel
+	with background colour.
+
+int lcdSetwindow (int, int, int, int)
+	Sets the LCD display's window region, where subsequent data sent from the host
+	will be written to.
+
+int lcdPutpixel (word X, word Y)
+	Writes a single pixel to host memory and to the display at pixel X, Y.
+
+unsigned int lcdGetpixel(word X, word Y)
+	Reads the pixel colour value at X, Y in host memory and returns it as an unsigned int.
+	It's a bit difficult to do a direct comparison of i.e. foreground vs background, as
+	pixels are stored as arrays of 3 color-bytes each.
+	TODO: add comparison function to test a color against another, returning true/false.
+
+int lcddrawChar (word, word, char*)
+	Draws a single character to host memory, and, depending on GraphicsControlFlag,
+	also draws it out to the display. If GraphicsControlFlag bit 0 == 1, then it does NOT draw
+	the character to the display;	if bit 0 == 0, it DOES draw it out to the display as long
+	as FontControlFlag is NOT equal to 0. Underline can only be used when printing HORIZONTALLY!
+	A bit is turned ON by OR-ing it with one of the below ie flag |= value
+	to turn it off use flag ^= value.
+	OR-ing CH_UL with FontControlFlag will turn on underling ie FontControlFlag |= CH_UL;
+	CH_ONLY turns on text only no text background
+	CH_BG tuns on both text color and text background
+	CH_INV swaps text colour and text background
+	CH_UL as mentioned above.
+
+int lcddrawString (int, int, char *)
+	Draws a string of characters to host memory using attributes set in FontControlFlag,
+	then uses bitBlt to blast out the string in one shot to the display.
+	Attributes for FontControlFlag are as follows:
+	bit 0: 0 = direction is horizontal; 1 = direction is vertical.
+	bit 1: 1 = only "textcolour" colored pixels are drawn to host and display memory;
+		  0 = nothing is drawn to display memory, only to host memory.
+	bit 2: 1 =  "textcolour" and "textbkcolour" pixels are drawn to host and display memory;
+		  0 = nothing is drawn to display memory, only to host memory.
+	bit 3: same as bit 2 above, but with reverse colours.
+	bit 4: 1 = characters are underlined; 0 = no underline.
+	NOTES A and B:
+	A:	if FontControlFlag == 0, nothing is drawn to host or display. Only one of bits
+		1, 2 or 3, plus bit 4, can be active at one time.
+	B:	Bit 4 can not be used with bit 0 = 1 (vertical).
+
+int lcddrawHline (word X1, word X2, word Y)
+	Draw line starting at X1, ending at X2 and at line Y.
+
+int lcddrawVline (word X, word Y1, word Y2)
+	Draw line at X, starting at Y1 ending at Y2.
+
+byte lcddrawLine (int X1, int Y1, int X2, int Y2)
+	If X1==X2 this function calls lcddrawVline; if Y1==Y2 it calls lcddrawHline;
+	otherwise it draws a diagonal line and blits host memory out to the display.
+
+int lcddrawRectangle (word X1, word Y1, word X2, word Y2, byte MODE)
+	MODE: Fill or Nofill.
+	Turns off display update via GraphicControlFlag bit 0 = 1. Performs all
+	required work to draw rectangle in host memory, then turns display back on
+	and bitBlts the defined area out to the display.
+
+word lcdclearArea (word, word, word, word)
+	Clears the given region of host memory to background color and bitBlts the updated
+	area to the display.
+
+byte lcddrawArc (word XO, word YO, word StartDegree, word EndDegree, word Radius, byte MODE)
+	MODE:  OpenArc / ClosedArc.
+	Draws either an open or closed arc at origin XO, YO, start degree, end degree, radius,
+	mode. Draws everything to host memory then bitBlts the area defined as
+	XO-radius,YO-radius, XO+radius, YO+radius to the display. This call may get better
+	optimized down the road to reduce the data transmission size.
+
+byte lcddrawCircle (word XO, word YO, word Radius, byte MODE)
+	MODE: Fill, Nofill
+	Draws a circle to the host memory at XO, YO, radius, mode; then bitBlts
+	the area defined by XO-radius, YO-radius, XO+radius, YO+radius to the display.
+
+byte lcddrawEllipse (word XO, word YO, word Radius1, word Radius2, byte MODE)
+	MODE: Fill, Nofill
+	Draws an ellipse to host memory at XO, YO, radius1, radius2, mode; then
+	blits it out to display memory same as above.
+
+byte *lcdsaveArea (word X1, word Y1, word X2, word Y2)
+	Allocates memory for the area described by X1, Y1, X2, Y2 + 4 extra bytes.
+	the first 2 extra bytes contain the width and the next 2 extra bytes contain the height.
+	The remaining bytes are pixel data ie 3 color-bytes per pixel. THIS can be a GotCha:
+	Don't forget to Free the pointer when you are done with it.
+	On error, this call returns a NULL pointer and sets lcdError.
+
+int lcdrestoreArea (word, word, *byte)
+	Grabs the width from *byte then the height from *(byte+2) and then adds 4 to the
+	pointer. Then writes remaining data to host memory. When done it bitBlts
+	the area defined by X1, Y1, X1+width, Y1+height. It is possible to swap the
+	width and height, but doing so with anything other than a region filled with
+	solid colour would produce some interesting side effects :-{
+
+int lcddrawTriangle (word x0, word y0, word Radius, byte Type, word A1, word A2, word A3);
+	This function is incomplete and simply returns having done Nothing.
+
+int SPISetup (int channel, int speed)
+	This is the last function useful to the user.
+	ALL the others are meant to be internal to the library. In this version I have allowed for
+	5 Spi devices. They are on Bus 0 and Bus 1. Bus 0 has 2 channels 0 and 1, while
+	Bus 1 has 3 channels 0,1 and 2. The respective names to use on the command line
+	are SPI0_0, SPI0_1, SPI1_0, SPI1_1 and SPI1_2. Again be aware if you are using
+	the Linux frame buffer and overlay for a display, that usually precludes the use of
+	SPI Bus 0. The speed parameter can be one of the following 1,2,4,8,16, and 32.
+
+byte lcdShowBmp ( char * )
+	char * Points to an character string NULL terminated of the bitmap file to display. The image
+	can't be larger than the display or and error is returned and lcdError is set. The image can be
+	smaller and in that case it will be centered horizontally and vertically. If the image is
+	smaller than the display I grab the top_left pixel and set the background to that colour.
+
+FINAL NOTES:
+
+The display parameter on the command line takes <  NAME > ie DISPLAY and < VALUE > ie Ili9488
+To choose the display for init configuration Name < DISPLAY > Value < Ili9488 >or Ili9340 or Ili9341 OR Ili9486
+
+TODO: add ability to use 5 displays all from the same program. Assuming frame buffering is not being used.
+add subfunctions for lcdShowBmp so that bitmaps can be loaded and not displayed immediately. They will be displayed
+with lcdrestoreArea. Finish lcddrawTriangle to draw equilateral,isolise and the one with 3 differing side lengths.
+
+The spi parameter takes < Name > ie. SPI < VALUE 1>  ie. SPI1_2 < VALUE 2 > ie. 32 {32 Mhz}
+All functions do range checking. Setup functions encountering errors will consider it to be
+a FATAL error and gracefully Abort the program writting a message to stdout {monitor}
+Graphical functions encountering errors will set lcdError to an error number and return with 1
+except lcdsaveArea which returns a NULL pointer if memory can't be allocated. lcdError also set. All pins
+are the Broadcom naming convention ie  GPIO17, just use the numeric value.
+Default CS {chip select } pins for spi1.0 GPIO ?
+                                      "                  spi1.1 GPIO ?
+		                     "                  spi1.2 GPIO16
+I only use these display for outputing of data so please don't ask for 'Touch support'.
+I only program in C and Intel X86 assembly so please don't ask for Python bindings C++ etc.
+
+If you'd like to start/join a small group to advace and/or extend this project please feel free to contact me.
+
+I've tried varying ways to speed up the lcdrestoreArea for animation but hav't hit on anything suitable. Using
+very small sprites may work to some degree ie limited to a 16 x 16 or maybe 32 x 32 pixel cell size. There are
+bound to be some bugs please notify me of them and the particulars as to how they happened.
+I work on a linux box so this may or may not work under Windoz! The defaults for the demo are as listed below
+they may be changed on the command line.
+DISPLAY      Ili9488
+RESET          GPIO23
+DC                 GPIO24
+LED               GPIO18
+SPI                 SPI1_2  32 (Mhz)
+BGR                         1
+ROTATION       270
+
+I've had a look at the other driver code and have decided that ONLY these Ilitek chips will be supported.
+
+If you add functions please notify me and don't forget to include them in the above documentation as to
+usage.
+In the source folder you will find "template.c" this simply a c start file that includes the code to parse
+the command line arguments in main, after the //*************** add your program code here *************
+is the place to start the code for your own program. The parsing is a bit bulky but gets the job done.
+The library and header files are all in the main folder path '/home/pi/IliTek_Displays' as I did not wish
+to go mucking about with your 'ROOT' files.
+
+I hope you find this to be useful in someway or another, smiles :-) Brina
+contact: raspibrina@gmail.com
